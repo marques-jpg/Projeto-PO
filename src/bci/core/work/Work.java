@@ -1,0 +1,228 @@
+package bci.core.work;
+
+import bci.core.Creator;
+import bci.core.exception.NotEnoughInventoryException;
+import bci.core.request.Request;
+import bci.core.exception.InvalidArgumentsException;
+import bci.core.user.Notification;
+import bci.core.user.NotificationType;
+
+import java.io.Serial;
+import java.io.Serializable;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedList;
+import java.util.List;
+
+public abstract class Work implements Serializable {
+    @Serial
+    private static final long serialVersionUID = -7478614181433606768L;
+
+    private final int _id;
+    private final String _title;
+    private final int _price;
+    private final WorkCategory _category;
+    private int _totalCopies;
+    private int _availableCopies;
+    private final WorkType _type;
+    private final List<Request> _requests;
+    private final List<WorkObserver> _observers;
+
+    protected Work(Builder<?, ?> builder) {
+        _id = builder._id;
+        _title = builder._title;
+        _price = builder._price;
+        _category = builder._category;
+        _totalCopies = builder._totalCopies;
+        _availableCopies = builder._totalCopies;
+        _type = builder._type;
+        _requests = new LinkedList<>();
+        _observers = new LinkedList<>();
+    }
+
+    public int getId() {
+        return _id;
+    }
+    public String getTitle() {
+        return _title;
+    }
+    public int getPrice() {
+        return _price;
+    }
+    public WorkCategory getCategory() {
+        return _category;
+    }
+    public int getTotalCopies() {
+        return _totalCopies;
+    }
+    public int getAvailableCopies() {
+        return _availableCopies;
+    }
+    public Collection<Request> getRequests() {
+        return Collections.unmodifiableList(_requests);
+    }
+
+    public boolean hasTerm(String term) {
+        if (_title.toLowerCase().contains(term)) {
+            return true;
+        }
+        for (Creator creator : getCreators()) {
+            if (creator.getName().toLowerCase().contains(term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void changeInventory(int amount) throws NotEnoughInventoryException {
+        if (amount + _availableCopies < 0) {
+            throw new NotEnoughInventoryException(_id, amount, _availableCopies);
+        }
+
+        _availableCopies += amount;
+        _totalCopies += amount;
+
+        if (amount > 0 && _availableCopies - amount == 0) {
+            notifyWorkHasAvailableCopy();
+        }
+    }
+
+    public boolean shouldBeRemovedFromSystem() {
+        return _totalCopies == 0;
+    }
+
+    /**
+     * Disposes the work and its dependents and returns creators with no more works in the system.
+     * @return List of creators associated with the work that should be disposed.
+     * @throws IllegalStateException if total copies are greater than zero.
+     */
+    public Collection<Creator> dispose() {
+        if (_totalCopies > 0) {
+            throw new IllegalStateException("Cannot dispose work. Total copies greater than zero.");
+        }
+
+        List<Creator> creatorsToDispose = new LinkedList<>();
+        for (Creator creator : getCreators()) {
+            creator.removeWork(this);
+            if (creator.shouldBeRemovedFromSystem()) {
+                creatorsToDispose.add(creator);
+            }
+        }
+
+        _requests.clear();
+        _observers.clear();
+
+        return creatorsToDispose;
+    }
+
+    public void requestWork(Request request) {
+        _requests.add(request);
+        _availableCopies--;
+        notifyWorkWasRequested();
+    }
+
+    public void returnWork() {
+        if (++_availableCopies == 1) {
+            notifyWorkHasAvailableCopy();
+        }
+    }
+
+    public void subscribe(WorkObserver observer) {
+        _observers.add(observer);
+    }
+
+    public void unsubscribe(WorkObserver observer) {
+        _observers.remove(observer);
+    }
+
+    private void notifyWorkWasRequested() {
+        Notification notification = new Notification(NotificationType.REQUISICAO, this);
+        notifyObservers(notification);
+    }
+
+    private void notifyWorkHasAvailableCopy() {
+        Notification notification = new Notification(NotificationType.DISPONIBILIDADE, this);
+        notifyObservers(notification);
+    }
+
+    private void notifyObservers(Notification notification) {
+        for (WorkObserver observer : _observers) {
+            if (observer.getSubscribedTypesOfWork(_id).contains(notification.getType())) {
+                observer.update(notification);
+            }
+        }
+    }
+
+    protected abstract Collection<Creator> getCreators();
+
+    protected String getGeneralDescription() {
+        return String.format("%d - %d de %d - %s - %s - %d - %s",
+                _id, _availableCopies, _totalCopies, _type.toString(), _title, _price, _category.toString());
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        return obj instanceof Work work && _id == work._id;
+    }
+
+    @Override
+    public abstract String toString();
+
+    /**
+     * Generic abstract Builder to be extended by concrete Work subclasses.
+     * @param <T> Concrete Work type
+     * @param <B> Concrete Builder type
+     */
+    public static abstract class Builder<T extends Work, B extends Builder<T, B>> {
+        protected Integer _id;
+        protected String _title;
+        protected Integer _price;
+        protected WorkCategory _category;
+        protected Integer _totalCopies;
+        protected WorkType _type;
+
+        public B id(int id) throws InvalidArgumentsException {
+            if (id < 1) {
+                throw new InvalidArgumentsException("ID must be greater than 0");
+            }
+            this._id = id;
+            return self();
+        }
+
+        public B title(String title) throws InvalidArgumentsException {
+            if (title == null || title.isBlank()) {
+                throw new InvalidArgumentsException("Title cannot be blank");
+            }
+            this._title = title;
+            return self();
+        }
+
+        public B price(int price) throws InvalidArgumentsException {
+            if (price <= 0) {
+                throw new InvalidArgumentsException("Price must be positive");
+            }
+            this._price = price;
+            return self();
+        }
+
+        public B category(WorkCategory category) throws InvalidArgumentsException {
+            if (category == null) {
+                throw new InvalidArgumentsException("Category cannot be null");
+            }
+            this._category = category;
+            return self();
+        }
+
+        public B totalCopies(int totalCopies) throws InvalidArgumentsException {
+            if (totalCopies <= 0) {
+                throw new InvalidArgumentsException("Total copies must be positive");
+            }
+            this._totalCopies = totalCopies;
+            return self();
+        }
+
+        protected abstract B self();
+
+        public abstract T build();
+    }
+}
