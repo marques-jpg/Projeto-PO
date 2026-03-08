@@ -1,7 +1,7 @@
-# BCI - Library Management System
+# Library Management System
 
 ## Overview
-This project is a Java-based Library Management System (BCI). It features a robust domain model for managing library users, various types of works (such as Books and DVDs), and a complete workflow for borrowing and returning items. The application is driven by a text-based user interface (CLI).
+This project is a Java-based Library Management System (BCI) for my Object-Oriented Programming class. It features a robust domain model for managing library users, various types of works (such as Books and DVDs), and a complete workflow for borrowing and returning items. The application is driven by a text-based user interface (CLI).
 
 ## Features
 
